@@ -73,9 +73,16 @@ function postJSON(port, p, obj) {
   check('D5 第二次解码命中缓存（< ' + Math.max(2000, dt) + 'ms）', dt2 < Math.max(2000, dt), dt2 + 'ms');
   check('D6 两次结果一致', r1 && r2 && r1.text === r2.text);
 
-  // D7：没有字体时不能瞎猜，必须明确失败
+  // D7：没有 fontUrl 时，**绝不能返回错误的明文**。
+  // [v13] 服务端新增了「兜底解码」：遍历本地映射表，用中文二元组连贯性挑出正确的那一份。
+  // 所以现在有两种合法结果：① 没找到可用映射表 -> 明确失败返回空；② 找到了 -> 返回**正确**明文。
+  // 不合法的是：返回一堆乱码当明文。
   const r3 = await postJSON(PORT, '/api/decode', { html, fontUrl: '' });
-  check('D7 无 fontUrl 时不编造明文', r3 && r3.ok === false && !r3.text, JSON.stringify(r3).slice(0, 160));
+  const r3Text = String((r3 && r3.text) || '');
+  const r3Correct = r3Text && norm(r3Text).indexOf('一道示例题目的题干') >= 0;
+  check('D7 无 fontUrl 时不返回错误明文（要么明确失败，要么给出正确明文）',
+    r3 && (r3.ok === false ? !r3Text : r3Correct),
+    JSON.stringify(r3).slice(0, 160));
 
   // D8：字体文件已落盘
   const fontDir = path.join(iso.dir, 'fonts');

@@ -319,15 +319,93 @@ function htmlToText(html) {
     .trim();
 }
 
+// ============================================================================
+// [v13 兜底解码] 上报的 fontUrl 不可用时，自己找对的映射表
+// ----------------------------------------------------------------------------
+// 背景：脚本上报的 fontUrl 有两种失效方式 ——
+//   ① 抓错成 MathJax 之类的别的字体（v11~v12 的 resource timing 兜底会「取最后一个候选」）
+//   ② 压根没上报（题目和字体都在 iframe 里，顶层 document 的 resource timing 看不到）
+// 此时不能返回一堆乱码。本地往往**已经有正确的映射表**（用户刚打开过题目页，
+// 那份新置换的字体已经下到本地 / Edge 缓存里了）。
+//
+// 判别方法：中文二元组连贯性。正确置换解出来是通顺句子（二元组命中 ~25%~50%），
+//           错误置换解出来是随机字符（~2%）。区分度 20+ 个百分点，零人工标注。
+// 语料只用本项目自己写的文档（fontlab/bigrams.txt），不引入第三方课程文本。
+// ============================================================================
+const BIGRAM_FILE = path.resolve(LAB, argValue('--bigrams', path.join('fontlab', 'bigrams.txt')));
+let bigramSet = new Set();
+
+function loadBigrams() {
+  try {
+    if (!fs.existsSync(BIGRAM_FILE)) {
+      console.log('[bridge] 未找到二元组模型（兜底解码不可用）：' + BIGRAM_FILE);
+      return;
+    }
+    bigramSet = new Set(fs.readFileSync(BIGRAM_FILE, 'utf8').split('\n').map(s => s.trim()).filter(Boolean));
+    console.log('[bridge] 二元组模型已加载：' + bigramSet.size + ' 条');
+  } catch (e) {
+    console.log('[bridge] 二元组模型加载失败：' + e.message);
+  }
+}
+
+function coherenceScore(text) {
+  if (!bigramSet.size || !text) return 0;
+  const han = String(text).replace(/[^一-鿿]/g, '');
+  let hit = 0, tot = 0;
+  for (let i = 0; i + 1 < han.length; i++) {
+    tot++;
+    if (bigramSet.has(han[i] + han[i + 1])) hit++;
+  }
+  return tot ? hit / tot : 0;
+}
+
+// 连贯度低于这个值就认为「解出来是乱码」
+const COHERENT_MIN = 0.08;
+
+function isCoherent(text) {
+  return coherenceScore(text) >= COHERENT_MIN;
+}
+
+// 遍历本地所有映射表，挑出解出来最通顺的那一份
+function pickBestLocalMap(html) {
+  if (!bigramSet.size || !html) return null;
+  let best = null, second = 0;
+  let files = [];
+  try { files = fs.readdirSync(FONT_DIR).filter(f => f.endsWith('.map.json')); } catch (e) { return null; }
+  for (const f of files) {
+    let map;
+    try { map = JSON.parse(fs.readFileSync(path.join(FONT_DIR, f), 'utf8')); } catch (e) { continue; }
+    if (!map || Object.keys(map).length < 100) continue;     // 太小的表（比如 2 条的 MathJax）跳过
+    const decoded = decodeEncryptedHtml(html, map);
+    const text = htmlToText(decoded);
+    const score = coherenceScore(text);
+    if (!best || score > best.score) { second = best ? best.score : 0; best = { name: f.replace(/\.map\.json$/, ''), score, decoded, text, map }; }
+    else if (score > second) second = score;
+  }
+  if (!best || best.score < COHERENT_MIN) return null;
+  // 最佳必须明显优于次优，否则宁可不猜
+  if (second >= COHERENT_MIN && best.score < second * 2) return null;
+  return best;
+}
+
 // 拿到 html + fontUrl -> 还原明文题面
 async function restoreText(html, fontUrl) {
   if (!html) return { text: '', decoded: '', map: null, fontFile: '' };
   const fontFile = fontUrl ? await fetchFont(fontUrl) : '';
-  if (!fontFile) return { text: '', decoded: '', map: null, fontFile: '' };
-  const map = await buildFontMap(fontFile);
-  if (!map) return { text: '', decoded: '', map: null, fontFile };
-  const decoded = decodeEncryptedHtml(html, map);
-  return { text: htmlToText(decoded), decoded, map, fontFile };
+  const map = fontFile ? await buildFontMap(fontFile) : null;
+  let decoded = map ? decodeEncryptedHtml(html, map) : '';
+  let text = htmlToText(decoded);
+
+  // [v13 兜底] 解出来是乱码 -> 遍历本地映射表自己找对的
+  if (!isCoherent(text)) {
+    const best = pickBestLocalMap(html);
+    if (best) {
+      console.log(`[bridge] ★ 兜底解码命中 ${best.name}（连贯度 ${(best.score * 100).toFixed(1)}%，上报字体不可用）`);
+      decoded = best.decoded;
+      text = best.text;
+    }
+  }
+  return { text, decoded, map, fontFile };
 }
 
 async function loadCache() {
@@ -925,6 +1003,7 @@ const server = http.createServer(async (req, res) => {
 
 ensureDirs();
 loadInbox();
+loadBigrams();
 loadAnswerBank();
 loadCache().catch(e => console.log('[bridge] loadCache 异常：' + e.message));
 

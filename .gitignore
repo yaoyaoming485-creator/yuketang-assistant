@@ -30,11 +30,12 @@ live/
 __pycache__/
 *.pyc
 
-# ===== 保留：测试用的自造字体 =====
+# ===== 保留：测试用的自造字体 + 中文二元组模型 =====
 fontlab/*
 !fontlab/obfuscated100.ttf
 !fontlab/small.ttf
 !fontlab/small.woff2
+!fontlab/bigrams.txt
 
 # ===== 一次性调试脚本（过程物，不入库）=====
 cdp-*.js
@@ -104,3 +105,5 @@ test-zstd.js
 try-api.js
 try-copy-profiles.js
 verify-addr-layout.js
+try-decode-inbox.js
+test-corpus-size.js

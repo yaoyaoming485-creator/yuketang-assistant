@@ -30,6 +30,7 @@ const SUITE = [
   ['待答队列 inbox', process.execPath, ['test-inbox.js']],
   ['字体解码链路', PY, ['test-decode-pipeline.py']],
   ['离线答案库端到端', process.execPath, ['test-answer-bank.js']],
+  ['兜底解码(错字体)', process.execPath, ['test-fallback-decode.js']],
   ['进度取值逻辑', process.execPath, [path.join('deliverables', 'test-progress-logic.js')]],
   ['错误路径对比', PY, [path.join('deliverables', 'test-error-paths.py')]],
 ];

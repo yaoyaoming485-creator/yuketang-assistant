@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雨课堂刷课助手
 // @namespace    http://tampermonkey.net/
-// @version      3.0.6-fix12
+// @version      3.0.6-fix13
 // @description  针对雨课堂视频进行自动播放，配置AI自动答题
 // @author       风之子
 // @license      GPL3
@@ -1436,49 +1436,82 @@
       } catch (e) { /* ignore */ }
       return '';
     },
-    // [v11/v12] 找混淆字体的 URL（三种策略）
+    // [v11/v12/v13] 找混淆字体的 URL
     //   方式一：遍历 CSSOM（<style> 文本里看不到，但 cssRules 里能读到）
     //   方式二：兜底扫 <style> 文本
     //   方式三：[v11 关键] resource timing —— 新版前端（ai-workspace）用 new FontFace()
     //           注入字体，**根本不在 document.styleSheets 里**，CSSOM 永远扫不到；
     //           但它是一次真实网络请求，一定出现在 performance resource entries 里。
+    //   [v13 关键] **题目和字体都在 iframe 里**（/v2/web/iframe-exercise/…）。
+    //           v11~v12 只在顶层文档找，于是 resource timing 里根本没有考试字体，
+    //           兜底逻辑「取最后一个候选」就抓到了 MathJax 字体 ->
+    //           服务端用错误映射表解码 -> 题面出来还是密文。
+    //           所以必须**连同源 iframe 一起找**，并且宁可返回空也不要报错字体。
     findFontUrl() {
+      // 1) 收集所有可能藏字体的文档：顶层 + 同源 iframe
+      const docs = [document];
       try {
-        for (const sheet of Array.from(document.styleSheets || [])) {
-          let rules = null;
-          try { rules = sheet.cssRules; } catch (e) { continue; }  // 跨域样式表读不到，跳过
-          if (!rules) continue;
-          for (const rule of Array.from(rules)) {
-            if (!rule || rule.type !== 5) continue;                 // 5 = CSSRule.FONT_FACE_RULE
-            const ff = rule.style && rule.style.getPropertyValue('font-family');
-            if (!ff || ff.indexOf('exam-data-decrypt-font') < 0) continue;
-            const srcText = rule.style.getPropertyValue('src') || rule.cssText || '';
-            const m = /url\(\s*['"]?([^'")]+)['"]?\s*\)/i.exec(srcText);
-            if (m) return m[1];
+        for (const frame of Array.from(document.querySelectorAll('iframe'))) {
+          try {
+            const d = frame.contentDocument;
+            if (d && d.body) docs.push(d);
+          } catch (e) { /* 跨域忽略 */ }
+        }
+      } catch (e) { /* ignore */ }
+
+      const NOISE = /mathjax|\/static\/js\/|\/icons?\/|\/images?\/|icon\.|favicon|\.svg(\?|$)|blob:|data:/i;
+      const WANT = /exam_font|fe_font|exam-data|font\/product|fe\/static\/font/i;
+      const isFont = (u) => /\.(ttf|otf|woff2?)(\?|#|$)/i.test(u) && !NOISE.test(u);
+
+      for (const doc of docs) {
+        // 方式一：CSSOM
+        try {
+          for (const sheet of Array.from(doc.styleSheets || [])) {
+            let rules = null;
+            try { rules = sheet.cssRules; } catch (e) { continue; }  // 跨域样式表读不到，跳过
+            if (!rules) continue;
+            for (const rule of Array.from(rules)) {
+              if (!rule || rule.type !== 5) continue;                 // 5 = CSSRule.FONT_FACE_RULE
+              const ff = rule.style && rule.style.getPropertyValue('font-family');
+              if (!ff || ff.indexOf('exam-data-decrypt-font') < 0) continue;
+              const srcText = rule.style.getPropertyValue('src') || rule.cssText || '';
+              const m = /url\(\s*['"]?([^'")]+)['"]?\s*\)/i.exec(srcText);
+              if (m) return m[1];
+            }
           }
-        }
-      } catch (e) { /* ignore */ }
-      for (const st of document.querySelectorAll('style')) {
-        const css = st.textContent || '';
-        if (css.indexOf('exam-data-decrypt-font') < 0) continue;
-        const blocks = css.match(/@font-face\s*\{[^}]*\}/gi) || [];
-        for (const b of blocks) {
-          const m = /src\s*:\s*url\(\s*['"]?([^'")]+)['"]?\s*\)/i.exec(b);
-          if (m) return m[1];
-        }
+        } catch (e) { /* ignore */ }
+        // 方式二：<style> 文本
+        try {
+          for (const st of Array.from(doc.querySelectorAll('style'))) {
+            const css = st.textContent || '';
+            if (css.indexOf('exam-data-decrypt-font') < 0) continue;
+            const blocks = css.match(/@font-face\s*\{[^}]*\}/gi) || [];
+            for (const b of blocks) {
+              const m = /src\s*:\s*url\(\s*['"]?([^'")]+)['"]?\s*\)/i.exec(b);
+              if (m) return m[1];
+            }
+          }
+        } catch (e) { /* ignore */ }
       }
+
+      // 方式三：resource timing（顶层 + 每个 iframe 自己的 window.performance）
       const cands = [];
-      try {
-        for (const e of (performance.getEntriesByType('resource') || [])) {
-          const u = e && e.name;
-          if (typeof u !== 'string') continue;
-          if (!/\.(ttf|otf|woff2?)(\?|#|$)/i.test(u)) continue;
-          if (cands.indexOf(u) < 0) cands.push(u);
-        }
-      } catch (e) { /* ignore */ }
-      for (const u of cands) if (/exam_font|fe_font/i.test(u)) return u;  // 优先雨课堂的加密字体
+      const pushCand = (u) => {
+        if (typeof u !== 'string') return;
+        if (!isFont(u)) return;
+        if (cands.indexOf(u) < 0) cands.push(u);
+      };
+      for (const doc of docs) {
+        try {
+          const perf = (doc.defaultView && doc.defaultView.performance) || performance;
+          for (const e of (perf.getEntriesByType('resource') || [])) pushCand(e && e.name);
+        } catch (e) { /* ignore */ }
+      }
+      // 优先雨课堂的考试字体
+      for (const u of cands) if (WANT.test(u)) return u;
+      // 只有一个候选时可以用；多于一个就**宁可不报** —— 报错字体比不报更糟
+      //（不报 -> 服务端会自己试所有本地映射表；报错 -> 解出一堆乱码）
       if (cands.length === 1) return cands[0];
-      if (cands.length > 1) return cands[cands.length - 1];
       return '';
     },
     // [v12] 把当前题目的 DOM 拼成一段人话（题型 + 题干 + 选项 + 页面答案栏）

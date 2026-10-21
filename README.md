@@ -14,7 +14,7 @@
 
 ## 一、效果对比
 
-|  | 旧版（v10 及以前） | 现在（v12） |
+|  | 旧版（v10 及以前） | 现在（v13） |
 |---|---|---|
 | 页面题面 | 肉眼正常，但 DOM 里是假字符 | **直接被替换成明文**，页面上就能读到 |
 | 脚本截图 | 乱码（html2canvas 克隆文档丢了 `@font-face`） | **真汉字** |
@@ -132,7 +132,9 @@ node shot-cli.js list               # 看已采集题目
 
 ---
 
-## 五之二、离线答案库（v13）：零 API 额度自动作答
+## 五之二、离线答案库 + 兜底解码（v13）：零 API 额度自动作答
+
+### ① 离线答案库
 
 题面密文能还原，但"还原出来的题该选哪个"本来要靠大模型。既然这一门课的题目是**固定**的，
 就可以把答案预先做好，题目一进来就地查表直接答掉。
@@ -144,14 +146,34 @@ node shot-cli.js list               # 看已采集题目
 | 指纹 | 只保留 CJK 汉字（滤掉标点/题号/空白/拉丁字母），因此对字体置换、DOM 结构微变都不敏感 |
 | 查表 | 题目进来 → 服务端还原明文 → 算指纹 → 命中即返回答案（`fromBank:true`） |
 
-当前内置 **73 题**（5 个作业），置信度分布 high 60 / mid 9 / low 4。
-端到端验证：把 73 道题的**原始密文 HTML** 逐题投喂隔离实例，73/73 命中、队列 0 待答
+当前内置 **74 题**（5 个作业 + 1 道新题），置信度分布 high 60 / mid 10 / low 4。
+端到端验证：把题目的**原始密文 HTML** 逐题投喂隔离实例，73/73 命中、队列 0 待答
 （`node test-answer-bank.js`）。
 
 **这条链路完全不消耗任何大模型 API 额度，也不要求 Agent 在线** —— 脚本轮询一次就拿到答案。
 
 答案依据写在 `answers-by-pid.json`（每题附判断理由），
 `answer-bank.json` 是由 `build-answer-bank.js` 生成的指纹索引，服务端默认加载它。
+
+### ② 兜底解码（修 v11~v12 的真 bug）
+
+v11~v12 的 `findFontUrl()` 有两个真 bug，导致**上报的字体 URL 完全不可用**：
+
+1. **题目和字体都在 iframe 里**（`/v2/web/iframe-exercise/…`），而 `findFontUrl()` 只在顶层
+   文档里找 —— 顶层 document 的 resource timing 里根本没有考试字体
+2. resource timing 的兜底逻辑是「**取最后一个候选**」→ 正好抓到 MathJax 字体
+
+结果：服务端用错误映射表解码 → **题面出来还是密文**（2026-10-21 实测复现）。
+
+v13 的修法是**双保险**：
+
+| 层 | 做法 |
+|---|---|
+| 脚本端 | `findFontUrl()` 连**同源 iframe** 一起找；候选过滤掉 MathJax/图标/图片；候选多于一个时**宁可返回空也不报错字体** |
+| 服务端 | 解出来是乱码就**遍历本地所有映射表**，用中文二元组连贯性挑出解出来是通顺句子的那份（语料只用本项目自己写的文档，`fontlab/bigrams.txt`，4459 条） |
+
+实测（`node test-fallback-decode.js`）：上报 MathJax 字体 / 上报另一份置换不对的考试字体 / 干脆不报
+—— 三种失效方式**全部**被兜底解码正确还原，6/6 通过。
 
 > ⚠️ `answer-bank.json` 与 `deliverables/作业答案库-*.md` 含本课程题库内容。
 > **若要把本仓库转为公开，请先移除这两个文件**，再把 `answer-bank.json` 写进 `.gitignore`
@@ -163,7 +185,7 @@ node shot-cli.js list               # 看已采集题目
 
 ```
 ├── deliverables/
-│   ├── 雨课堂刷课助手-修复版.user.js   # 油猴脚本成品（v12）
+│   ├── 雨课堂刷课助手-修复版.user.js   # 油猴脚本成品（v13）
 │   ├── 本地答题模式-使用说明.md         # 完整使用文档
 │   ├── 作业一-答案与题面还原.md         # 一次真实作业的还原实录
 │   ├── 作业答案库-科研伦理与学术规范.md # 5 个作业 73 题的答案 + 判断理由
@@ -180,6 +202,7 @@ node shot-cli.js list               # 看已采集题目
 ├── answer-bank.json           # 离线答案库（指纹索引，73 题）★含课程题库内容
 ├── answers-by-pid.json        # 逐题答案 + 判断理由（答案库源文件）
 ├── build-answer-bank.js       # 由源文件生成指纹索引
+├── build-bigram-model.js      # 生成中文二元组模型（兜底解码用）
 ├── decode-all-questions.js    # 快照 → 明文题面（并判定快照与字体的对应关系）
 ├── run-all-tests.js       # 一键跑全套自检 + 校验真实数据零污染
 ├── test-harness.js        # 隔离实例（独立端口/缓存/截图/字体/答案库，每次启动前清空）
@@ -210,6 +233,7 @@ node test-decode-endpoint.js       #  8/8  /api/decode 真下载字体 + 真还�
 node test-inbox.js                 #  9/9  待答队列全链路
 python test-decode-pipeline.py     #  7/7  字体解码端到端
 node test-answer-bank.js           # 73/73 离线答案库端到端（密文→解码→命中→作答）
+node test-fallback-decode.js       #  6/6  兜底解码（字体 URL 失效时服务端自己找）
 node deliverables/test-progress-logic.js   # 进度取值逻辑语义复核
 python deliverables/test-error-paths.py    # 错误路径对比（修复版 vs 原版）
 ```
