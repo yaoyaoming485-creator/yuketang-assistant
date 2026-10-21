@@ -75,6 +75,15 @@ test-python-route.py
 # 根目录下的旧版 .user.js 副本（v12 成品在 deliverables/）
 /雨课堂刷课助手-修复版.user.js
 
+# ===== 课程题库内容（属作业方版权，仓库不入库；本地保留供自己用）=====
+answer-bank.json
+answers-by-pid.json
+deliverables/作业答案库-*.md
+deliverables/作业题目明文-*.txt
+deliverables/作业一-答案与题面还原.md
+deliverables/字体解码效果示例.png
+deliverables/示例题目截图.png
+
 # 本次上传用的运维脚本（一次性，不入库）
 init-repo.js
 push-repo.js

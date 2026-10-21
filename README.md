@@ -175,9 +175,18 @@ v13 的修法是**双保险**：
 实测（`node test-fallback-decode.js`）：上报 MathJax 字体 / 上报另一份置换不对的考试字体 / 干脆不报
 —— 三种失效方式**全部**被兜底解码正确还原，6/6 通过。
 
-> ⚠️ `answer-bank.json` 与 `deliverables/作业答案库-*.md` 含本课程题库内容。
-> **若要把本仓库转为公开，请先移除这两个文件**，再把 `answer-bank.json` 写进 `.gitignore`
-> （中转站会在找不到答案库时自动降级为「进待答队列等 Agent」，不影响使用）。
+> ⚠️ **课程题库内容不入库。** `answer-bank.json`、`answers-by-pid.json`、
+> `deliverables/作业答案库-*.md`、`deliverables/作业题目明文-*.txt`、
+> `deliverables/作业一-答案与题面还原.md` 以及两张题目截图都含作业方的题库内容，
+> **已从仓库移除并写进 `.gitignore`**（本地文件保留，自己用）。
+> 仓库里只保留**生成工具**，换一门课按下面两步自己重建即可。
+>
+> ```bash
+> node decode-all-questions.js   # ① 从 localStorage 快照解出明文题面（并判定快照↔字体对应）
+> #    然后把答案填进 answers-by-pid.json（每题附理由与置信度）
+> node build-answer-bank.js      # ② 生成指纹索引 answer-bank.json
+> ```
+> 没有答案库时中转站会自动降级为「进待答队列等 Agent」，功能不受影响。
 
 ---
 
@@ -187,10 +196,7 @@ v13 的修法是**双保险**：
 ├── deliverables/
 │   ├── 雨课堂刷课助手-修复版.user.js   # 油猴脚本成品（v13）
 │   ├── 本地答题模式-使用说明.md         # 完整使用文档
-│   ├── 作业一-答案与题面还原.md         # 一次真实作业的还原实录
-│   ├── 作业答案库-科研伦理与学术规范.md # 5 个作业 73 题的答案 + 判断理由
-│   ├── 作业题目明文-73题.txt           # 73 道题还原后的明文题面与选项
-│   └── 字体解码效果示例.png
+│   └── （课程题库内容：答案库/明文题面/题目截图 —— 本地保留，不入库）
 ├── local-answer-server.js   # 本地答案中转站（8900）
 ├── serve-userscript.js      # 油猴更新服务（8899）
 ├── shot-cli.js              # 命令行助手
@@ -199,20 +205,22 @@ v13 的修法是**双保险**：
 ├── decode-with-font.py      # 用映射表还原题面
 ├── find-right-font.py       # 批量建表 + 找出"用户这一份"字体
 ├── tools/fetch-original-map.py  # 下载思源黑体哈希表
-├── answer-bank.json           # 离线答案库（指纹索引，73 题）★含课程题库内容
-├── answers-by-pid.json        # 逐题答案 + 判断理由（答案库源文件）
 ├── build-answer-bank.js       # 由源文件生成指纹索引
 ├── build-bigram-model.js      # 生成中文二元组模型（兜底解码用）
 ├── decode-all-questions.js    # 快照 → 明文题面（并判定快照与字体的对应关系）
 ├── run-all-tests.js       # 一键跑全套自检 + 校验真实数据零污染
 ├── test-harness.js        # 隔离实例（独立端口/缓存/截图/字体/答案库，每次启动前清空）
 ├── test-answer-bank.js    # 离线答案库端到端（密文 → 解码 → 命中 → 作答）
+├── test-fallback-decode.js# 兜底解码（字体 URL 失效时服务端自己找）
 ├── wait-inbox.js          # 后台轮询待答队列（Agent 侧取题）
 ├── verify-font-maps.js    # 校验 fonts/*.map.json：条目数、合法性
-├── verify-font-maps2.js   # 深校验：CJK 范围、9 份字体映射互不相同
+├── verify-font-maps2.js   # 深校验：CJK 范围、各份字体映射互不相同
 ├── snapshot-real-data.js  # 真实数据指纹（证明测试没污染生产数据）
 ├── test-*.js / test-*.py    # 回归测试（见下）
-└── fontlab/                 # 自造的测试用混淆字体
+└── fontlab/                 # 自造的测试用混淆字体 + 二元组模型
+
+# 课程题库内容（本地保留，不入库）：answer-bank.json、answers-by-pid.json、
+# deliverables/作业答案库-*.md、作业题目明文-*.txt 等
 ```
 
 ---
