@@ -61,3 +61,10 @@ gh-*.js
 node_modules/
 .DS_Store
 Thumbs.db
+
+# 本次上传用的运维脚本（一次性，不入库）
+init-repo.js
+push-repo.js
+verify-remote.js
+gh-repos.js
+gh-user.js
