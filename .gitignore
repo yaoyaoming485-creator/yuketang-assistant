@@ -86,6 +86,8 @@ deliverables/示例题目截图.png
 # 上面两个脚本里硬编码了本题库的题面/答案，只在本地用
 add-live-question.js
 redact-identifiers.js
+# 终检脚本的查找表里就是姓名/各类 id/题面特征串
+verify-public-ready.js
 
 # 本次上传用的运维脚本（一次性，不入库）
 init-repo.js

@@ -43,12 +43,30 @@ function postJSON(port, p, obj) {
 
   const FONT_URL = 'https://fe-static-yuketang.yuketang.cn/fe_font/product/exam_font_9e8180041a384270bb2b2dd5deb08b89.ttf';
 
-  // 造一段真实的加密原文（和线上抓到的同款结构）
-  const html = '<div class="item-body"><p>哈佛<span class="xuetangx-com-encrypted-font">甲乙丙丁戊己庚辛壬癸</span>？</p>' +
-    '<ul><li><p><span class="xuetangx-com-encrypted-font">子丑寅卯辰巳</span></p></li>' +
-    '<li><p><span class="xuetangx-com-encrypted-font">午未申酉戌</span></p></li>' +
-    '<li><p><span class="xuetangx-com-encrypted-font">亥子丑寅卯辰</span></p></li>' +
-    '<li><p>MLA<span class="xuetangx-com-encrypted-font">巳午未申酉</span></p></li></ul></div>';
+  // 造一段**自造**的加密原文。
+  // 注意：不能用课程里的真实题目做夹具 —— 仓库要能公开，测试夹具里也不能留题库内容。
+  // 做法：用字体的「假字 -> 真字」映射表建逆映射，把自造的题干/选项加密成密文，
+  //       再断言服务端能原样还原回去（round-trip）。
+  const mapFile = path.join(LAB, 'fonts', 'exam_font_9e8180041a384270bb2b2dd5deb08b89.ttf.map.json');
+  const fmap = JSON.parse(fs.readFileSync(mapFile, 'utf8'));
+  const inv = {};
+  for (const [fake, real] of Object.entries(fmap)) inv[real] = fake;
+  const reals = [...new Set(Object.values(fmap))];
+  // 字体字符集里没有的字没法编码 -> 统一替换成集内字，保证「密文->明文」可逆
+  const fallbackReal = reals[0];
+  const fit = (s) => [...s].map(c => (inv[c] ? c : fallbackReal)).join('');
+  const enc = (s) => [...s].map(c => inv[c]).join('');
+
+  const STEM = fit('这是一个自造的测试题干用于验证解码链路');
+  const OPTS = [
+    fit('选项甲的具体内容'), fit('选项乙的具体内容'),
+    fit('选项丙的具体内容'), fit('选项丁的具体内容'),
+  ];
+  const encStem = enc(STEM);
+  const encOpts = OPTS.map(enc);
+  const span = (t) => '<span class="xuetangx-com-encrypted-font">' + t + '</span>';
+  const html = '<div class="item-body"><p>' + span(encStem) + '？</p>' +
+    '<ul>' + encOpts.map(o => '<li><p>' + span(o) + '</p></li>').join('') + '</ul></div>';
 
   // D1：带字体 URL -> 能还原
   const t0 = Date.now();
@@ -58,12 +76,11 @@ function postJSON(port, p, obj) {
   check('D1 /api/decode 返回 ok', r1 && r1.ok === true, JSON.stringify(r1).slice(0, 200));
   check('D2 映射表非空', r1 && r1.mapSize > 800, 'mapSize=' + (r1 && r1.mapSize));
   const norm = (s) => String(s || '').replace(/\s+/g, '');
-  check('D3 明文含「一道示例题目的题干」',
-    !!(r1 && r1.text && norm(r1.text).indexOf('一道示例题目的题干') >= 0),
+  check('D3 明文还原出自造题干',
+    !!(r1 && r1.text && norm(r1.text).indexOf(norm(STEM)) >= 0),
     r1 && r1.text ? r1.text.slice(0, 120) : '(空)');
   check('D4 四个选项都还原成真字',
-    !!(r1 && r1.text && norm(r1.text).indexOf('注释引证式') >= 0 && norm(r1.text).indexOf('插句式') >= 0 &&
-       norm(r1.text).indexOf('循环数字编码式') >= 0 && norm(r1.text).indexOf('MLA') >= 0),
+    !!(r1 && r1.text && OPTS.every(o => norm(r1.text).indexOf(norm(o)) >= 0)),
     r1 && r1.text ? r1.text.slice(0, 200) : '(空)');
 
   // D5：第二次应该走缓存（很快）
@@ -79,7 +96,7 @@ function postJSON(port, p, obj) {
   // 不合法的是：返回一堆乱码当明文。
   const r3 = await postJSON(PORT, '/api/decode', { html, fontUrl: '' });
   const r3Text = String((r3 && r3.text) || '');
-  const r3Correct = r3Text && norm(r3Text).indexOf('一道示例题目的题干') >= 0;
+  const r3Correct = r3Text && norm(r3Text).indexOf(norm(STEM)) >= 0;
   check('D7 无 fontUrl 时不返回错误明文（要么明确失败，要么给出正确明文）',
     r3 && (r3.ok === false ? !r3Text : r3Correct),
     JSON.stringify(r3).slice(0, 160));
