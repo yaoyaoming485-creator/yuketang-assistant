@@ -1,0 +1,11 @@
+# 雨课堂刷课助手（本地答题版）依赖
+#
+# 服务端（local-answer-server.js / shot-cli.js / serve-userscript.js）只用 Node 内置模块，
+# 无需 npm 依赖。下面这些是「混淆字体逆向」相关的 Python 依赖。
+
+fonttools>=4.50.0     # 读 TTF、解析 cmap、提取字形轮廓
+Pillow>=10.0.0        # 渲染字形网格图（OCR 对照用）
+ddddocr>=1.5.6        # OCR 识别渲染出的字形（可选，仅旧版解码器需要）
+requests>=2.31.0      # 下载混淆字体
+brotli>=1.1.0         # 解 woff2（缺了会报可读的错误，不会静默失败）
+numpy>=1.26.0         # 图像处理（ddddocr 依赖）

@@ -1,0 +1,63 @@
+# ===== 敏感：本地用户数据，绝不入库 =====
+answer-cache*.json
+answer-cache*.bak
+inbox.json
+shots/
+logs/
+.test-runtime/
+
+# Edge 用户数据（cookie / 历史记录 / 浏览器 profile）
+edgeck/
+edge-junction/
+edge-tmp-profile/
+*.Cookies*
+*History*.db
+
+# 混淆字体文件（作业版权方资源，按需本地生成）
+fonts/
+
+# 第三方克隆的仓库（不是我写的，另有出处）
+YuKeTang/
+yuketang-jiaoben/
+ykt/
+
+# 线上抓下来的前端包（雨课堂版权）
+live/
+
+# Python 虚拟环境
+.venv/
+.venv-nobrotli/
+__pycache__/
+*.pyc
+
+# ===== 保留：测试用的自造字体 =====
+fontlab/*
+!fontlab/obfuscated100.ttf
+!fontlab/small.ttf
+!fontlab/small.woff2
+
+# ===== 一次性调试脚本（过程物，不入库）=====
+cdp-*.js
+find-*.js
+peek-*.js
+scan-*.js
+dump-*.js
+check-*.js
+debug-*.js
+try-map*.js
+make-*.js
+probe-api.js
+inspect-live.js
+bump-*.js
+fix-*.js
+clean-*.js
+deep-scan.js
+live-inbox-demo.js
+patch-cache-fonturl.js
+patch-tests-isolation.js
+gh-user.js
+gh-repos.js
+gh-*.js
+node_modules/
+.DS_Store
+Thumbs.db
