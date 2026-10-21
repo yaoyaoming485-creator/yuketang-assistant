@@ -156,6 +156,21 @@ function saveInbox() {
   }
 }
 
+// 命中答案库 -> 直接把该题标成已作答并写回答案（两条入队路径共用）
+function applyAnswerBank(key, question, extra) {
+  const hit = question ? matchAnswerBank(question) : null;
+  if (!hit) return null;
+  enqueueInbox(key, Object.assign({}, extra || {}, {
+    answer: hit.answer,
+    note: `答案库自动应答（PID ${hit.pid} / ${hit.type} / 置信 ${hit.confidence}）：${hit.note}`,
+    answered: true,
+    answeredAt: Date.now(),
+    fromBank: true,
+  }));
+  console.log(`[bridge] ★ 答案库命中 ${hit.pid} -> ${hit.answer}（${hit.type}，置信 ${hit.confidence}）`);
+  return hit;
+}
+
 // 入队（同一 key 覆盖，不重复排队）
 function enqueueInbox(key, payload) {
   const prev = inbox[key] || {};
@@ -574,14 +589,18 @@ async function saveShot(key, imageData, text, extra) {
         } catch (e) { /* ignore */ }
         console.log(`[bridge] #${rec.seq} 已还原明文题面：${restored.text.slice(0, 90)}`);
         // [v12] 还原出来就入队，等 Agent 来答（不在线也不丢题）
-        enqueueInbox(key, {
+        // [v13] 先查答案库：命中就直接答掉，不必等 Agent
+        const extra = {
           seq: rec.seq,
           question: restored.text,
           decodedText: restored.text,
           text: rec.text || '',
           file: rec.file || '',
           fontUrl: rec.fontUrl || '',
-        });
+        };
+        if (!applyAnswerBank(key, restored.text, extra)) {
+          enqueueInbox(key, extra);
+        }
       }
     }
   }
@@ -843,33 +862,20 @@ const server = http.createServer(async (req, res) => {
       if (!question) question = String(body.text || '').slice(0, 4000);
 
       // [v13] 离线答案库：命中就直接答掉（不消耗 API 额度，也不等 Agent）
-      const hit = question ? matchAnswerBank(question) : null;
-      if (hit) {
-        const item = enqueueInbox(key, {
-          seq: Number(body.seq) || 0,
-          question,
-          decodedText: question,
-          text: String(body.text || ''),
-          fontUrl,
-          html: html ? html.slice(0, 20000) : '',
-          answer: hit.answer,
-          note: `答案库自动应答（PID ${hit.pid} / ${hit.type} / 置信 ${hit.confidence}）：${hit.note}`,
-          answered: true,
-          answeredAt: Date.now(),
-          fromBank: true,
-        });
-        console.log(`[bridge] ★ 答案库命中 ${hit.pid} -> ${hit.answer}（${hit.type}，置信 ${hit.confidence}）`);
-        return sendJson(res, 200, { ok: true, key, question, answered: true, answer: hit.answer, item, fromBank: true });
-      }
-
-      const item = enqueueInbox(key, {
+      const extra = {
         seq: Number(body.seq) || 0,
         question,
         decodedText: question,
         text: String(body.text || ''),
         fontUrl,
         html: html ? html.slice(0, 20000) : '',
-      });
+      };
+      const hit = applyAnswerBank(key, question, extra);
+      if (hit) {
+        return sendJson(res, 200, { ok: true, key, question, answered: true, answer: hit.answer, item: inbox[key], fromBank: true });
+      }
+
+      const item = enqueueInbox(key, extra);
       console.log(`[bridge] 入队一道题（未命中答案库，等待 Agent）：${String(question).slice(0, 80)}`);
       return sendJson(res, 200, { ok: true, key, question, item, fromBank: false });
     }
