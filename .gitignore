@@ -88,6 +88,9 @@ add-live-question.js
 redact-identifiers.js
 # 终检脚本的查找表里就是姓名/各类 id/题面特征串
 verify-public-ready.js
+# 一次性发布脚本（含 force-push，跑错很危险；验证脚本含敏感特征串）
+publish-public.js
+verify-anonymous.js
 
 # 本次上传用的运维脚本（一次性，不入库）
 init-repo.js
