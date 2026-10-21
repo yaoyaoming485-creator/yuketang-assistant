@@ -190,6 +190,17 @@ v13 的修法是**双保险**：
 > node build-answer-bank.js      # ② 生成指纹索引 answer-bank.json
 > ```
 > 没有答案库时中转站会自动降级为「进待答队列等 Agent」，功能不受影响。
+>
+> **换了新课 / 开了新作业怎么办？**
+> ```bash
+> node discover-new-exercises.js
+> ```
+> 它会复制一份浏览器 Local Storage、用副本起一个 headless Edge 读出全部作业快照、
+> 逐题解密，并告诉你**哪些题答案库里还没有**。补完答案后 `node build-answer-bank.js` 即可。
+>
+> 两个踩过的坑：复制 leveldb 时 `MANIFEST-000001` / `CURRENT` / `LOG` **必须一起拷**
+> （少一个就恢复不出数据，只跳 `LOCK` 就行）；从 leveldb 读出来的字体名可能被截断，
+> 要还原成 `exam_font_<md5>.ttf` 完整名再拼 URL。
 
 ---
 
@@ -208,6 +219,7 @@ v13 的修法是**双保险**：
 ├── decode-with-font.py      # 用映射表还原题面
 ├── find-right-font.py       # 批量建表 + 找出"用户这一份"字体
 ├── tools/fetch-original-map.py  # 下载思源黑体哈希表
+├── discover-new-exercises.js  # 扫浏览器 localStorage，发现「开了但没答案」的作业
 ├── build-answer-bank.js       # 由源文件生成指纹索引
 ├── build-bigram-model.js      # 生成中文二元组模型（兜底解码用）
 ├── decode-all-questions.js    # 快照 → 明文题面（并判定快照与字体的对应关系）

@@ -41,7 +41,7 @@ function req(port, method, p, body) {
   const bankDst = path.join(iso.dir, 'answer-bank.json');
   fs.copyFileSync(bankSrc, bankDst);
   for (const f of fs.readdirSync(path.join(LAB, 'fonts'))) {
-    if (f.endsWith('.ttf')) fs.copyFileSync(path.join(LAB, 'fonts', f), path.join(iso.dir, 'fonts', f));
+    if (f.endsWith('.ttf') || f.endsWith('.map.json')) fs.copyFileSync(path.join(LAB, 'fonts', f), path.join(iso.dir, 'fonts', f));
   }
   console.log('  隔离实例 ' + iso.base + '  dir=' + iso.dir);
 
@@ -67,8 +67,11 @@ function req(port, method, p, body) {
   }
   console.log('  ' + (log.match(/\[bridge\] 离线答案库已加载[^\n]*/) || ['(未看到答案库加载日志)'])[0]);
 
-  // ---- 构造 73 道题的原始密文 HTML ----
+  // ---- 构造全部题目的原始密文 HTML ----
+  // 快照来自两处：历史 dump（localstorage.json）与实时扫描（localstorage-live.json）
   const ls = JSON.parse(fs.readFileSync(path.join(API_DIR, 'localstorage.json'), 'utf8'));
+  const livePath = path.join(API_DIR, 'localstorage-live.json');
+  const live = fs.existsSync(livePath) ? JSON.parse(fs.readFileSync(livePath, 'utf8')) : {};
   const decoded = JSON.parse(fs.readFileSync(path.join(API_DIR, 'decoded-questions.json'), 'utf8'));
   const answers = JSON.parse(fs.readFileSync(path.join(LAB, 'answers-by-pid.json'), 'utf8'));
 
@@ -76,16 +79,22 @@ function req(port, method, p, body) {
   // 关键：密文 HTML 与字体必须来自**同一次页面加载**（同一次置换），
   // 否则服务端会用错误的映射表解出乱码。真实浏览器里两者天然同源。
   const rawBySnap = {};
-  for (const k of Object.keys(ls)) {
-    if (!k.startsWith('iframe-exercise-')) continue;
-    let j; try { j = JSON.parse(ls[k]); } catch (e) { continue; }
-    rawBySnap[k] = {};
-    for (const [pid, p] of Object.entries(j.problems || {})) {
-      if (pid.endsWith('_group')) continue;
-      const c = p.content || {};
-      rawBySnap[k][pid] = { body: c.Body || '', options: c.Options || [], type: c.TypeText || '' };
+  const scan = (obj, liveTag) => {
+    for (const k of Object.keys(obj)) {
+      if (!k.startsWith('iframe-exercise-')) continue;
+      let j; try { j = JSON.parse(obj[k]); } catch (e) { continue; }
+      const ex = (/^iframe-exercise-(\d+)-(\d+)/.exec(k) || [])[2] || '';
+      const tag = liveTag ? ('live:' + ex) : k;
+      rawBySnap[tag] = rawBySnap[tag] || {};
+      for (const [pid, p] of Object.entries(j.problems || {})) {
+        if (pid.endsWith('_group')) continue;
+        const c = p.content || {};
+        rawBySnap[tag][pid] = { body: c.Body || '', options: c.Options || [], type: c.TypeText || '' };
+      }
     }
   }
+  scan(ls, false);
+  scan(live, true);
   // PID -> 字体 + 对应快照
   const fontOf = {};
   const snapOf = {};
