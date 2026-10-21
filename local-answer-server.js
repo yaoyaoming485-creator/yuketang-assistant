@@ -57,6 +57,8 @@ const FONT_DIR = path.resolve(LAB, argValue('--fonts', 'fonts'));
 const CACHE_FILE = path.resolve(LAB, argValue('--cache', 'answer-cache.json'));
 // [v12] 持久待答队列：题目进来先排队，Agent 什么时候醒什么时候答，不超时丢弃
 const INBOX_FILE = path.resolve(LAB, argValue('--inbox', 'inbox.json'));
+// [v13] 离线答案库：题目进来先在本地查答案，命中就直接答掉（不占用任何 API 额度）
+const ANSWER_BANK_FILE = path.resolve(LAB, argValue('--answer-bank', 'answer-bank.json'));
 
 // 脚本 GM_xmlhttpRequest 的 timeout 是 120000ms，服务端必须更早返回，否则脚本先超时。
 const HARD_WAIT_CAP_MS = 100000;
@@ -176,6 +178,72 @@ function setInboxAnswer(key, answer, note) {
   });
   saveInbox();
   return true;
+}
+
+// ============================================================================
+// [v13] 离线答案库
+// ---------------------------------------------------------------------------
+// 为什么需要：题面是从浏览器里拿到的**密文**（雨课堂用动态字体把汉字换成假字符）。
+// 服务端有字形映射表，能把密文还原成明文；但还原出来之后仍然需要人来判断答案。
+// 这里把「题目指纹 -> 答案」预先离线做好，题目一进来就地查表直接答掉：
+//   · 不消耗任何大模型 API 额度
+//   · 不依赖 Agent 是否在线（Agent 在不在都能提交）
+// 指纹：只保留 CJK 汉字（滤掉标点/题号/空白/拉丁字母），因此对
+//   「每次页面加载重新随机置换一次字体」「DOM 结构微变」都不敏感。
+// ============================================================================
+const answerBank = { byFull: new Map(), byOpt: new Map(), count: 0, meta: null };
+
+function cjkFingerprint(s) {
+  return String(s || '').replace(/[^一-鿿]/g, '');
+}
+
+function loadAnswerBank() {
+  try {
+    if (!fs.existsSync(ANSWER_BANK_FILE)) {
+      console.log('[bridge] 未找到答案库：' + ANSWER_BANK_FILE + '（题目将进入待答队列）');
+      return;
+    }
+    const raw = JSON.parse(fs.readFileSync(ANSWER_BANK_FILE, 'utf8'));
+    const list = (raw && raw.entries) || [];
+    const optSeen = new Map();
+    for (const e of list) {
+      answerBank.byFull.set(e.fullFp, e);
+      optSeen.set(e.optFp, (optSeen.get(e.optFp) || 0) + 1);
+    }
+    for (const e of list) {
+      // 只有选项指纹全局唯一时才入索引（否则会撞题）
+      if (optSeen.get(e.optFp) === 1) answerBank.byOpt.set(e.optFp, e);
+    }
+    answerBank.count = list.length;
+    answerBank.meta = raw;
+    console.log('[bridge] 离线答案库已加载：' + list.length + ' 题（指纹索引 ' +
+      answerBank.byFull.size + ' / 唯一选项索引 ' + answerBank.byOpt.size + '）');
+  } catch (e) {
+    console.log('[bridge] 答案库加载失败（不影响主流程）：' + e.message);
+  }
+}
+
+// 用明文题面查答案：先整题指纹，再（题干重复时）用唯一选项指纹 + 题干校验
+function matchAnswerBank(plainText) {
+  if (!answerBank.count || !plainText) return null;
+  const fp = cjkFingerprint(plainText);
+  if (!fp) return null;
+  const exact = answerBank.byFull.get(fp);
+  if (exact) return exact;
+  for (const [full, e] of answerBank.byFull) {
+    if (full && fp.includes(full)) return e;
+  }
+  for (const [opt, e] of answerBank.byOpt) {
+    if (opt && fp.includes(opt) && fp.includes(e.bodyFp)) return e;
+  }
+  // 最后兜底：题干唯一时按题干匹配
+  const bodyHits = [];
+  for (const e of answerBank.byFull.values()) {
+    if (e.bodyFp && e.bodyFp.length >= 8 && fp.includes(e.bodyFp)) bodyHits.push(e);
+    if (bodyHits.length > 1) break;
+  }
+  if (bodyHits.length === 1) return bodyHits[0];
+  return null;
 }
 
 // ============================================================================
@@ -695,6 +763,27 @@ const server = http.createServer(async (req, res) => {
         question = restored.text || '';
       }
       if (!question) question = String(body.text || '').slice(0, 4000);
+
+      // [v13] 离线答案库：命中就直接答掉（不消耗 API 额度，也不等 Agent）
+      const hit = question ? matchAnswerBank(question) : null;
+      if (hit) {
+        const item = enqueueInbox(key, {
+          seq: Number(body.seq) || 0,
+          question,
+          decodedText: question,
+          text: String(body.text || ''),
+          fontUrl,
+          html: html ? html.slice(0, 20000) : '',
+          answer: hit.answer,
+          note: `答案库自动应答（PID ${hit.pid} / ${hit.type} / 置信 ${hit.confidence}）：${hit.note}`,
+          answered: true,
+          answeredAt: Date.now(),
+          fromBank: true,
+        });
+        console.log(`[bridge] ★ 答案库命中 ${hit.pid} -> ${hit.answer}（${hit.type}，置信 ${hit.confidence}）`);
+        return sendJson(res, 200, { ok: true, key, question, answered: true, answer: hit.answer, item, fromBank: true });
+      }
+
       const item = enqueueInbox(key, {
         seq: Number(body.seq) || 0,
         question,
@@ -703,8 +792,8 @@ const server = http.createServer(async (req, res) => {
         fontUrl,
         html: html ? html.slice(0, 20000) : '',
       });
-      console.log(`[bridge] 入队一道题：${String(question).slice(0, 80)}`);
-      return sendJson(res, 200, { ok: true, key, question, item });
+      console.log(`[bridge] 入队一道题（未命中答案库，等待 Agent）：${String(question).slice(0, 80)}`);
+      return sendJson(res, 200, { ok: true, key, question, item, fromBank: false });
     }
 
     if (p === '/api/inbox' && method === 'GET') {
@@ -836,6 +925,7 @@ const server = http.createServer(async (req, res) => {
 
 ensureDirs();
 loadInbox();
+loadAnswerBank();
 loadCache().catch(e => console.log('[bridge] loadCache 异常：' + e.message));
 
 server.listen(PORT, '127.0.0.1', () => {

@@ -48,6 +48,10 @@ async function startIsolatedBridge(port, tag) {
     '--shots', path.join(dir, 'shots'),
     '--fonts', path.join(dir, 'fonts'),
     '--inbox', path.join(dir, 'inbox.json'),
+    // 答案库也必须隔离：默认指向隔离目录（通常不存在），
+    // 否则生产答案库会命中测试用的真实题目，让「未作答」断言莫名其妙失败。
+    // 需要验证答案库的用例请自行拷贝并用 --answer-bank 指定（见 test-answer-bank.js）。
+    '--answer-bank', path.join(dir, 'answer-bank.json'),
   ], { cwd: LAB, stdio: ['ignore', 'pipe', 'pipe'] });
 
   let log = '';

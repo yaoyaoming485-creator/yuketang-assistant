@@ -80,3 +80,27 @@ push-repo.js
 verify-remote.js
 gh-repos.js
 gh-user.js
+
+# 逆向过程中的**一次性探针**（结论已固化进脚本与文档，探针本身不保留）
+diag-profile.js
+edge-mac-audit.js
+edge-prefs-structure.js
+extract-cache-entries.js
+extract-jwt.js
+fetch-ykt-via-edge.js
+grab-cookies-offline.js
+grab-session.js
+grab-session-2.js
+mine-yuketang-ls.js
+page-context-fetch.js
+probe-cache-layout.js
+probe-eid-hash.js
+probe-qbank-api.js
+probe-qbank-api2.js
+probe-qbank-api3.js
+probe-search-page.js
+qbank-search.js
+test-zstd.js
+try-api.js
+try-copy-profiles.js
+verify-addr-layout.js
