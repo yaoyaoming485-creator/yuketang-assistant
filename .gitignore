@@ -40,12 +40,14 @@ fontlab/*
 cdp-*.js
 find-*.js
 peek-*.js
+peek-*.py
 scan-*.js
 dump-*.js
 check-*.js
 debug-*.js
 try-map*.js
 make-*.js
+make-*.py
 probe-api.js
 inspect-live.js
 bump-*.js
@@ -61,6 +63,16 @@ gh-*.js
 node_modules/
 .DS_Store
 Thumbs.db
+
+# 早期补丁脚本与一次性探针（过程物）
+patch-yuketang.js
+deliverables/patch-yuketang*.js
+test-font-decode*.py
+test-patched-module.py
+test-python-route.py
+
+# 根目录下的旧版 .user.js 副本（v12 成品在 deliverables/）
+/雨课堂刷课助手-修复版.user.js
 
 # 本次上传用的运维脚本（一次性，不入库）
 init-repo.js

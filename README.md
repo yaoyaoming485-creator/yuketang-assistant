@@ -148,6 +148,12 @@ node shot-cli.js list               # 看已采集题目
 ├── decode-with-font.py      # 用映射表还原题面
 ├── find-right-font.py       # 批量建表 + 找出"用户这一份"字体
 ├── tools/fetch-original-map.py  # 下载思源黑体哈希表
+├── run-all-tests.js       # 一键跑全套自检 + 校验真实数据零污染
+├── test-harness.js        # 隔离实例（独立端口/缓存/截图/字体，每次启动前清空）
+├── wait-inbox.js          # 后台轮询待答队列（Agent 侧取题）
+├── verify-font-maps.js    # 校验 fonts/*.map.json：条目数、合法性
+├── verify-font-maps2.js   # 深校验：CJK 范围、9 份字体映射互不相同
+├── snapshot-real-data.js  # 真实数据指纹（证明测试没污染生产数据）
 ├── test-*.js / test-*.py    # 回归测试（见下）
 └── fontlab/                 # 自造的测试用混淆字体
 ```
@@ -157,17 +163,32 @@ node shot-cli.js list               # 看已采集题目
 ## 七、测试
 
 ```bash
+node run-all-tests.js          # 一键跑全套 + 自动校验「真实数据零污染」
+```
+
+单独跑某一个：
+
+```bash
 node test-local-answer-server.js   # 13/13  中转站基础功能
 node test-extract-page-answer.js   # 14/14  页面答案栏自动提取
 node test-v5-bridge-fallback.js    # 14/14  402 自动降级到中转站
 node test-decode-endpoint.js       #  8/8  /api/decode 真下载字体 + 真还原
 node test-inbox.js                 #  9/9  待答队列全链路
 python test-decode-pipeline.py     #  7/7  字体解码端到端
+node deliverables/test-progress-logic.js   # 进度取值逻辑语义复核
+python deliverables/test-error-paths.py    # 错误路径对比（修复版 vs 原版）
 ```
 
-> 自检脚本一律跑在**隔离实例**上（独立端口 + 独立缓存 + 独立截图目录），
-> 不会清空你的答案缓存、不会删你的截图。
-> 详见 `docs/本地答题模式-使用说明.md`。
+> **测试隔离是硬要求。** 自检脚本一律跑在隔离实例上（独立端口 + 独立缓存 +
+> 独立截图目录 + 独立字体目录），并且**每次启动前清空自己的测试目录**。
+> 原因有两个：
+> 1. 这些脚本会 POST `/api/reset`、会在 `shots/` 里落文件。直接打生产实例
+>    会清空你的答案缓存、删掉你已采集的截图（2026-10-21 实际踩过）。
+> 2. 隔离目录若不清空，上一轮已作答的队列条目会被复用（队列 key 是题面哈希，
+>    固定不变），测试从第二轮起必然失败。
+>
+> `run-all-tests.js` 会在跑测试前后各算一次 `answer-cache.json` /
+> `inbox.json` / `shots/` 的 SHA-1 指纹，一旦不一致直接判失败。
 
 ---
 

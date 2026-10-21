@@ -137,7 +137,12 @@ function getJSON(url) {
   console.log('== v5 本地中转站自动接入 端到端测试 ==\n');
 
   const src = fs.readFileSync(USER_JS, 'utf8');
-  check('S1 成品版本号为 3.0.6-fix11', src.includes('@version      3.0.6-fix11'));
+  // 版本断言写成「>= fix12」而不是硬编码某个具体号：
+  // 硬编码会在每次升版时变成一条误报噪声，而这里真正要守住的是
+  // 「至少包含 v12 的『取题 + 本地中转站队列』能力」。
+  const verMatch = /@version\s+(\d+\.\d+\.\d+-fix(\d+))/.exec(src);
+  const fixNo = verMatch ? parseInt(verMatch[2], 10) : -1;
+  check('S1 成品版本号 >= 3.0.6-fix12', fixNo >= 12, verMatch && verMatch[1]);
 
   // 顶层常量与判定函数
   const urlConst = /const LOCAL_BRIDGE_URL = '([^']*)';/.exec(src);

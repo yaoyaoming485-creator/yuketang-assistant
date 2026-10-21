@@ -32,9 +32,22 @@ import argparse
 
 from PIL import Image, ImageDraw, ImageFont
 
-LAB = os.path.dirname(os.path.abspath(__file__))
-SHOTS_DIR = os.path.join(LAB, 'shots')
-FONTS_DIR = os.path.join(LAB, 'fonts')
+# 本脚本的 stdout 是**机器可读**的（父进程按 UTF-8 解码后做字符串比对）。
+# Windows 上子进程 stdout 默认跟随系统 ANSI 代码页，中文会被写成 '?'，
+# 导致「解码结果是否等于期望文本」永远比不过。强制 UTF-8 输出。
+try:
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    pass
+
+SELF_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# 数据目录可用环境变量覆盖，便于测试跑隔离实例而不碰用户的真实 shots/fonts/缓存
+LAB = os.environ.get('YKT_LAB_DIR') or SELF_DIR
+SHOTS_DIR = os.environ.get('YKT_SHOTS_DIR') or os.path.join(LAB, 'shots')
+FONTS_DIR = os.environ.get('YKT_FONTS_DIR') or os.path.join(LAB, 'fonts')
+CACHE_FILE = os.environ.get('YKT_CACHE_FILE') or os.path.join(LAB, 'answer-cache.json')
 
 # 宽松匹配加密 span：属性顺序无关 / class 含子串 / 引号任意 / 大小写不敏感 / 可跨行
 SPAN_RE = re.compile(
@@ -64,7 +77,7 @@ def load_shot(seq):
 
     # 字体文件：取该序号对应的缓存记录里记录的 fontFile；否则用目录里唯一那个
     font_path = None
-    cache_file = os.path.join(LAB, 'answer-cache.json')
+    cache_file = CACHE_FILE
     if os.path.exists(cache_file):
         try:
             with open(cache_file, 'r', encoding='utf-8') as f:

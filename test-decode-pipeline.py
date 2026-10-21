@@ -25,14 +25,27 @@ except Exception:
 from fontTools.ttLib import TTFont
 
 LAB = os.path.dirname(os.path.abspath(__file__))
-WORK = os.path.join(LAB, 'fontlab')
-SHOTS = os.path.join(LAB, 'shots')
-FONTS = os.path.join(LAB, 'fonts')
-CACHE = os.path.join(LAB, 'answer-cache.json')
-OBF = os.path.join(WORK, 'obfuscated100.ttf')
+# [隔离] 跑在 .test-runtime/pipeline 下，绝不碰用户真实的 shots/ fonts/ answer-cache.json
+# （2026-10-21 教训：自检脚本直连生产目录，曾把用户已采集的截图冲掉）
+ISO = os.path.join(LAB, '.test-runtime', 'pipeline')
+SHOTS = os.path.join(ISO, 'shots')
+FONTS = os.path.join(ISO, 'fonts')
+CACHE = os.path.join(ISO, 'answer-cache.json')
+OBF = os.path.join(LAB, 'fontlab', 'obfuscated100.ttf')
 CORPUS_FILE = os.path.join(LAB, 'YuKeTang', 'answer', '2025秋-人工智能安全与伦理.txt')
 PY = os.path.join(LAB, '.venv', 'Scripts', 'python.exe')
 DEC = os.path.join(LAB, 'decode-font-mojibake.py')
+
+
+def child_env():
+    """给子进程注入隔离目录（decode-font-mojibake.py 支持这几个环境变量）。"""
+    env = dict(os.environ)
+    env['YKT_LAB_DIR'] = ISO
+    env['YKT_SHOTS_DIR'] = SHOTS
+    env['YKT_FONTS_DIR'] = FONTS
+    env['YKT_CACHE_FILE'] = CACHE
+    env['PYTHONIOENCODING'] = 'utf-8'
+    return env
 
 SEQ = 99
 pass_n = 0
@@ -75,6 +88,7 @@ def main():
     print('  期望还原: %s\n' % expect)
 
     # 造 html + 就位字体 + 写一条 seq=99 的缓存元信息（模拟中转站采集到的样子）
+    shutil.rmtree(ISO, ignore_errors=True)
     os.makedirs(SHOTS, exist_ok=True)
     os.makedirs(FONTS, exist_ok=True)
     html_path = os.path.join(SHOTS, '%02d-selftest.html' % SEQ)
@@ -103,7 +117,8 @@ def main():
         # ---- A/B/C：跑 render 模式 ----
         print('-' * 60)
         r = subprocess.run([PY, DEC, str(SEQ)], capture_output=True, text=True,
-                           encoding='utf-8', errors='replace', timeout=600)
+                           encoding='utf-8', errors='replace', timeout=600,
+                           env=child_env())
         out = (r.stdout or '').replace('\ufffd', '?')
         print(out[:1500])
         if r.returncode != 0:
@@ -132,7 +147,7 @@ def main():
             json.dump(truth, f, ensure_ascii=False, indent=2)
         r2 = subprocess.run([PY, DEC, str(SEQ), '--map', truth_map_file],
                             capture_output=True, text=True, encoding='utf-8',
-                            errors='replace', timeout=300)
+                            errors='replace', timeout=300, env=child_env())
         decoded = (r2.stdout or '').strip()
         print('  解码输出: %s' % decoded[:200])
         check('解码后包含正确的还原文本', expect in decoded, decoded[:120])
@@ -145,7 +160,7 @@ def main():
             json.dump(wrong_map, f, ensure_ascii=False, indent=2)
         r3 = subprocess.run([PY, DEC, str(SEQ), '--map', wrong_file],
                             capture_output=True, text=True, encoding='utf-8',
-                            errors='replace', timeout=300)
+                            errors='replace', timeout=300, env=child_env())
         decoded3 = (r3.stdout or '').strip()
         check('错误映射时输出确实变了（说明映射真的被应用）', expect not in decoded3)
 

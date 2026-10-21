@@ -31,6 +31,12 @@ function getJSON(port, p) {
 
 async function startIsolatedBridge(port, tag) {
   const dir = path.join(LAB, '.test-runtime', tag);
+  // [关键] 每次启动前清空该 tag 的隔离目录。
+  // 否则上一轮遗留的 inbox 条目/答案会被复用 —— 队列 key 是 html 的哈希（固定），
+  // 上一轮已作答的条目会被 "enqueueInbox" 复用成 answered=true，
+  // 导致 "队列项标记为未作答" 这类断言在第二次运行起必然失败。
+  // 只删 .test-runtime 下的测试目录，绝不碰 lab 根目录下的真实数据。
+  fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(path.join(dir, 'shots'), { recursive: true });
   fs.mkdirSync(path.join(dir, 'fonts'), { recursive: true });
   const cacheFile = path.join(dir, 'answer-cache.json');
