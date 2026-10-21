@@ -83,6 +83,9 @@ deliverables/作业题目明文-*.txt
 deliverables/作业一-答案与题面还原.md
 deliverables/字体解码效果示例.png
 deliverables/示例题目截图.png
+# 上面两个脚本里硬编码了本题库的题面/答案，只在本地用
+add-live-question.js
+redact-identifiers.js
 
 # 本次上传用的运维脚本（一次性，不入库）
 init-repo.js
